@@ -2,8 +2,9 @@ config ZMK_LED_CONTROL
     bool "Enable automatic LED control based on activity"
     default y
     help
-      Keep the indicator LED (alias indicator-led) on while the board is running.
-      Requires an indicator-led alias in shield Devicetree.
+      Keep indicator LEDs on while the board is running.
+      Supports steady-on LEDs and pulsing LEDs.
+      Requires indicator-led aliases in shield Devicetree.
 
 config ZMK_DUMB_LED_TIMEOUT
     int "LED timeout in milliseconds after inactivity"
@@ -13,3 +14,29 @@ config ZMK_DUMB_LED_TIMEOUT
       Time in milliseconds before the LED turns off due to inactivity.
       Default is 120000ms (2 minutes).
       The LED will turn back on when any key is pressed.
+
+config ZMK_DUMB_LED_STEADY
+    bool "Enable steady indicator LED (stays on)"
+    depends on ZMK_LED_CONTROL
+    default y
+    help
+      When enabled, the steady indicator LED (alias indicator-led-steady) will stay on
+      while active and turn off after the inactivity timeout.
+
+config ZMK_DUMB_LED_PULSE
+    bool "Enable pulsing indicator LED"
+    depends on ZMK_LED_CONTROL
+    default n
+    help
+      When enabled, the pulsing indicator LED (alias indicator-led-pulse) will pulse
+      on and off instead of staying on. The LED will pulse when active and turn off
+      completely after inactivity timeout.
+
+config ZMK_DUMB_LED_PULSE_INTERVAL
+    int "LED pulse interval in milliseconds"
+    depends on ZMK_DUMB_LED_PULSE
+    default 500
+    help
+      Time in milliseconds for each pulse cycle (on/off duration).
+      Default is 500ms (500ms on, 500ms off).
+      Lower values create faster pulses, higher values create slower pulses.
