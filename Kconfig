@@ -3,4 +3,13 @@ config ZMK_LED_CONTROL
     default y
     help
       Keep the indicator LED (alias indicator-led) on while the board is running.
-      Requires an indicator-led alias in your shield Devicetree (already provided in cornebt.dtsi).
+      Requires an indicator-led alias in shield Devicetree.
+
+config ZMK_DUMB_LED_TIMEOUT
+    int "LED timeout in milliseconds after inactivity"
+    depends on ZMK_LED_CONTROL
+    default 120000
+    help
+      Time in milliseconds before the LED turns off due to inactivity.
+      Default is 120000ms (2 minutes).
+      The LED will turn back on when any key is pressed.

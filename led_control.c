@@ -11,6 +11,36 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #if DT_NODE_HAS_STATUS(LED_NODE, okay)
 
 static const struct gpio_dt_spec led = GPIO_DT_SPEC_GET(LED_NODE, gpios);
+static struct k_timer led_timeout_timer;
+static bool led_is_active = true;
+
+// 2 minutes in milliseconds
+#define LED_TIMEOUT_MS CONFIG_ZMK_DUMB_LED_TIMEOUT
+
+static void led_timeout_handler(struct k_timer *timer) {
+    gpio_pin_set_dt(&led, 0);  // Turn LED off
+    led_is_active = false;
+    LOG_INF("LED turned off after 2 minutes of inactivity");
+}
+
+static void reset_led_timer(void) {
+    if (!led_is_active) {
+        // Turn LED back on if it was off
+        gpio_pin_set_dt(&led, 1);
+        led_is_active = true;
+        LOG_INF("LED turned back on by key press");
+    }
+    
+    // Reset the timeout timer
+    k_timer_stop(&led_timeout_timer);
+    k_timer_start(&led_timeout_timer, K_MSEC(LED_TIMEOUT_MS), K_NO_WAIT);
+}
+
+// Hook into ZMK's key press events
+int zmk_keymap_key_pressed(uint32_t key_code) {
+    reset_led_timer();
+    return 0;
+}
 
 static int led_control_init(void) {
     if (!device_is_ready(led.port)) {
@@ -30,7 +60,11 @@ static int led_control_init(void) {
         return ret;
     }
 
-    LOG_INF("Indicator LED forced on at boot (port %s pin %d)", led.port->name, led.pin);
+    // Initialize and start the timeout timer
+    k_timer_init(&led_timeout_timer, led_timeout_handler, NULL);
+    k_timer_start(&led_timeout_timer, K_MSEC(LED_TIMEOUT_MS), K_NO_WAIT);
+
+    LOG_INF("Indicator LED initialized with 2-minute auto-off timeout");
     return 0;
 }
 
