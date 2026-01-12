@@ -2,6 +2,8 @@
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/logging/log.h>
+#include <zmk/event_manager.h>
+#include <zmk/events/position_state_changed.h>
 
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
@@ -20,7 +22,7 @@ static bool led_is_active = true;
 static void led_timeout_handler(struct k_timer *timer) {
     gpio_pin_set_dt(&led, 0);  // Turn LED off
     led_is_active = false;
-    LOG_INF("LED turned off after 2 minutes of inactivity");
+    LOG_INF("LED turned off after timeout");
 }
 
 static void reset_led_timer(void) {
@@ -36,11 +38,19 @@ static void reset_led_timer(void) {
     k_timer_start(&led_timeout_timer, K_MSEC(LED_TIMEOUT_MS), K_NO_WAIT);
 }
 
-// Hook into ZMK's key press events
-int zmk_keymap_key_pressed(uint32_t key_code) {
-    reset_led_timer();
-    return 0;
+// Event listener for key presses
+static int led_control_event_listener(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *pos_ev = as_zmk_position_state_changed(eh);
+    
+    if (pos_ev != NULL && pos_ev->state) {  // Key pressed (not released)
+        reset_led_timer();
+    }
+    
+    return ZMK_EV_EVENT_BUBBLE;
 }
+
+ZMK_LISTENER(led_control, led_control_event_listener);
+ZMK_SUBSCRIPTION(led_control, zmk_position_state_changed);
 
 static int led_control_init(void) {
     if (!device_is_ready(led.port)) {
@@ -64,7 +74,7 @@ static int led_control_init(void) {
     k_timer_init(&led_timeout_timer, led_timeout_handler, NULL);
     k_timer_start(&led_timeout_timer, K_MSEC(LED_TIMEOUT_MS), K_NO_WAIT);
 
-    LOG_INF("Indicator LED initialized with 2-minute auto-off timeout");
+    LOG_INF("Indicator LED initialized with auto-off timeout");
     return 0;
 }
 
