@@ -1,0 +1,6 @@
+if SHIELD_DUMB_LED
+
+config ZMK_LED_CONTROL
+    default y
+
+endif # SHIELD_DUMB_LED
