@@ -1,0 +1,6 @@
+config ZMK_LED_CONTROL
+    bool "Enable automatic LED control based on activity"
+    default y
+    help
+      Keep the indicator LED (alias indicator-led) on while the board is running.
+      Requires an indicator-led alias in your shield Devicetree (already provided in cornebt.dtsi).

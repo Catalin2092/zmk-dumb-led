@@ -1,0 +1,1 @@
+target_sources_ifdef(CONFIG_ZMK_LED_CONTROL app PRIVATE led_control.c)
