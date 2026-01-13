@@ -19,7 +19,9 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 // Breathing LED parameters
 #define BREATH_MIN_BRIGHTNESS 20  // Minimum brightness percentage (0-100)
 #define BREATH_MAX_BRIGHTNESS 100 // Maximum brightness percentage (0-100)
-#define BREATH_STEP 5             // Brightness step per interval
+#define BREATH_STEP 3             // Brightness step per interval
+#define PWM_PERIOD_US 2000        // Software PWM period in microseconds (500Hz)
+#define PWM_UPDATE_INTERVAL_MS 50 // How often to update breathing brightness
 
 // Activity tracking
 static bool leds_are_active = true;
@@ -38,8 +40,10 @@ static bool steady_led_initialized = false;
 #if DT_NODE_HAS_STATUS(LED_PULSE_NODE, okay)
 static const struct gpio_dt_spec led_pulse = GPIO_DT_SPEC_GET(LED_PULSE_NODE, gpios);
 static struct k_timer pulse_timer;
+static struct k_timer pwm_timer;
 static uint8_t pulse_brightness = BREATH_MAX_BRIGHTNESS;  // Current brightness (0-100)
 static int8_t brightness_direction = -1;  // -1 for decreasing, 1 for increasing
+static uint32_t pwm_on_time_us = PWM_PERIOD_US;  // PWM on-time in microseconds
 static bool pulse_led_initialized = false;
 #endif
 #endif
@@ -55,10 +59,11 @@ static void activity_timeout_handler(struct k_timer *timer) {
     
     #ifdef CONFIG_ZMK_DUMB_LED_PULSE
     #if DT_NODE_HAS_STATUS(LED_PULSE_NODE, okay)
-    gpio_pin_set_dt(&led_pulse, 1);   // Keep pulse LED at minimum brightness
+    gpio_pin_set_dt(&led_pulse, 0);   // Turn pulse LED off
     pulse_brightness = BREATH_MIN_BRIGHTNESS;
     brightness_direction = 1;
     k_timer_stop(&pulse_timer);
+    k_timer_stop(&pwm_timer);
     #endif
     #endif
     
@@ -67,9 +72,24 @@ static void activity_timeout_handler(struct k_timer *timer) {
 
 #ifdef CONFIG_ZMK_DUMB_LED_PULSE
 #if DT_NODE_HAS_STATUS(LED_PULSE_NODE, okay)
+
+// Software PWM handler - toggles LED at high frequency
+static void pwm_handler(struct k_timer *timer) {
+    if (!leds_are_active) {
+        gpio_pin_set_dt(&led_pulse, 0);
+        return;
+    }
+    
+    // Toggle LED off, then schedule it to turn back on after on-time
+    gpio_pin_set_dt(&led_pulse, 0);
+    k_busy_wait(PWM_PERIOD_US - pwm_on_time_us);
+    gpio_pin_set_dt(&led_pulse, 1);
+}
+
+// Breathing effect handler - updates brightness gradually
 static void pulse_handler(struct k_timer *timer) {
     if (!leds_are_active) {
-        return;  // Don't pulse if LEDs are inactive
+        return;
     }
     
     // Update brightness based on direction
@@ -84,9 +104,8 @@ static void pulse_handler(struct k_timer *timer) {
         brightness_direction = 1;
     }
     
-    // For GPIO, we'll simulate brightness by toggling more or less frequently
-    // Or keep LED on at minimum and use the brightness value for potential PWM control
-    gpio_pin_set_dt(&led_pulse, 1);  // Keep LED on, brightness tracked in pulse_brightness
+    // Calculate PWM on-time based on brightness
+    pwm_on_time_us = (PWM_PERIOD_US * pulse_brightness) / 100;
     LOG_DBG("LED breath: %d%%", pulse_brightness);
 }
 #endif
@@ -108,8 +127,10 @@ static void reset_activity_timer(void) {
         if (pulse_led_initialized) {
             pulse_brightness = BREATH_MAX_BRIGHTNESS;
             brightness_direction = -1;
+            pwm_on_time_us = PWM_PERIOD_US;
             gpio_pin_set_dt(&led_pulse, 1);
-            k_timer_start(&pulse_timer, K_MSEC(LED_PULSE_INTERVAL_MS), K_MSEC(LED_PULSE_INTERVAL_MS));
+            k_timer_start(&pwm_timer, K_USEC(PWM_PERIOD_US), K_USEC(PWM_PERIOD_US));
+            k_timer_start(&pulse_timer, K_MSEC(PWM_UPDATE_INTERVAL_MS), K_MSEC(PWM_UPDATE_INTERVAL_MS));
         }
         #endif
         #endif
@@ -173,9 +194,11 @@ static int led_control_init(void) {
                 LOG_ERR("Failed to turn pulse indicator LED on");
             } else {
                 pulse_led_initialized = true;
+                k_timer_init(&pwm_timer, pwm_handler, NULL);
                 k_timer_init(&pulse_timer, pulse_handler, NULL);
-                k_timer_start(&pulse_timer, K_MSEC(LED_PULSE_INTERVAL_MS), K_MSEC(LED_PULSE_INTERVAL_MS));
-                LOG_INF("Pulse indicator LED initialized");
+                k_timer_start(&pwm_timer, K_USEC(PWM_PERIOD_US), K_USEC(PWM_PERIOD_US));
+                k_timer_start(&pulse_timer, K_MSEC(PWM_UPDATE_INTERVAL_MS), K_MSEC(PWM_UPDATE_INTERVAL_MS));
+                LOG_INF("Pulse indicator LED initialized with breathing effect");
             }
         }
     }
