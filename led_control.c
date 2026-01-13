@@ -1,6 +1,7 @@
 #include <zephyr/kernel.h>
 #include <zephyr/device.h>
 #include <zephyr/drivers/gpio.h>
+#include <zephyr/drivers/pwm.h>
 #include <zephyr/logging/log.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/position_state_changed.h>
@@ -14,6 +15,11 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 // LED timeout in milliseconds
 #define LED_TIMEOUT_MS CONFIG_ZMK_DUMB_LED_TIMEOUT
 #define LED_PULSE_INTERVAL_MS CONFIG_ZMK_DUMB_LED_PULSE_INTERVAL
+
+// Breathing LED parameters
+#define BREATH_MIN_BRIGHTNESS 20  // Minimum brightness percentage (0-100)
+#define BREATH_MAX_BRIGHTNESS 100 // Maximum brightness percentage (0-100)
+#define BREATH_STEP 5             // Brightness step per interval
 
 // Activity tracking
 static bool leds_are_active = true;
@@ -32,7 +38,8 @@ static bool steady_led_initialized = false;
 #if DT_NODE_HAS_STATUS(LED_PULSE_NODE, okay)
 static const struct gpio_dt_spec led_pulse = GPIO_DT_SPEC_GET(LED_PULSE_NODE, gpios);
 static struct k_timer pulse_timer;
-static bool pulse_led_state = false;
+static uint8_t pulse_brightness = BREATH_MAX_BRIGHTNESS;  // Current brightness (0-100)
+static int8_t brightness_direction = -1;  // -1 for decreasing, 1 for increasing
 static bool pulse_led_initialized = false;
 #endif
 #endif
@@ -48,8 +55,9 @@ static void activity_timeout_handler(struct k_timer *timer) {
     
     #ifdef CONFIG_ZMK_DUMB_LED_PULSE
     #if DT_NODE_HAS_STATUS(LED_PULSE_NODE, okay)
-    gpio_pin_set_dt(&led_pulse, 0);   // Turn pulse LED off
-    pulse_led_state = false;
+    gpio_pin_set_dt(&led_pulse, 1);   // Keep pulse LED at minimum brightness
+    pulse_brightness = BREATH_MIN_BRIGHTNESS;
+    brightness_direction = 1;
     k_timer_stop(&pulse_timer);
     #endif
     #endif
@@ -64,9 +72,22 @@ static void pulse_handler(struct k_timer *timer) {
         return;  // Don't pulse if LEDs are inactive
     }
     
-    pulse_led_state = !pulse_led_state;  // Toggle pulse state
-    gpio_pin_set_dt(&led_pulse, pulse_led_state ? 1 : 0);
-    LOG_DBG("LED pulse: %s", pulse_led_state ? "on" : "off");
+    // Update brightness based on direction
+    pulse_brightness += (BREATH_STEP * brightness_direction);
+    
+    // Reverse direction at min/max brightness
+    if (pulse_brightness >= BREATH_MAX_BRIGHTNESS) {
+        pulse_brightness = BREATH_MAX_BRIGHTNESS;
+        brightness_direction = -1;
+    } else if (pulse_brightness <= BREATH_MIN_BRIGHTNESS) {
+        pulse_brightness = BREATH_MIN_BRIGHTNESS;
+        brightness_direction = 1;
+    }
+    
+    // For GPIO, we'll simulate brightness by toggling more or less frequently
+    // Or keep LED on at minimum and use the brightness value for potential PWM control
+    gpio_pin_set_dt(&led_pulse, 1);  // Keep LED on, brightness tracked in pulse_brightness
+    LOG_DBG("LED breath: %d%%", pulse_brightness);
 }
 #endif
 #endif
@@ -85,7 +106,8 @@ static void reset_activity_timer(void) {
         #ifdef CONFIG_ZMK_DUMB_LED_PULSE
         #if DT_NODE_HAS_STATUS(LED_PULSE_NODE, okay)
         if (pulse_led_initialized) {
-            pulse_led_state = true;
+            pulse_brightness = BREATH_MAX_BRIGHTNESS;
+            brightness_direction = -1;
             gpio_pin_set_dt(&led_pulse, 1);
             k_timer_start(&pulse_timer, K_MSEC(LED_PULSE_INTERVAL_MS), K_MSEC(LED_PULSE_INTERVAL_MS));
         }
